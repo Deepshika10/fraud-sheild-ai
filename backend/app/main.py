@@ -10,10 +10,16 @@ from app.transaction_store import (
     update_transaction_status,
     get_all_transactions,
     get_all_transactions_list,
+    save_blockchain_record,
+    get_blockchain_record,
 )
 from app.transaction_generator import run_transaction_generator
 
-from app.blockchain_logger import log_fraud_to_blockchain
+from app.blockchain_logger import (
+    log_fraud_to_blockchain,
+    generate_transaction_hash,
+    verify_transaction_on_blockchain,
+)
 
 app = FastAPI()
 app.add_middleware(
@@ -119,12 +125,16 @@ def create_transaction(features: dict):
     # Save transaction
     save_transaction(txn_id, transaction_data)
 
-    # Log extreme fraud attempts to blockchain
-    if risk_score >= 0.85:
+    # Log high-risk fraud transactions to blockchain for audit trail
+    # Risk threshold: 0.75 (HIGH risk = risk_score >= 0.7, additional buffer at 0.75)
+    if risk_score > 0.75:
 
         blockchain_record = log_fraud_to_blockchain(transaction_data)
 
         transaction_data["blockchain_log"] = blockchain_record
+
+        # Store blockchain record separately for verification
+        save_blockchain_record(txn_id, blockchain_record)
 
     return transaction_data
 
@@ -249,6 +259,75 @@ def get_single_transaction(txn_id: str):
         return {"error": "Transaction not found"}
 
     return transaction
+
+
+# ---------------------------------------
+# VERIFY TRANSACTION ON BLOCKCHAIN
+# ---------------------------------------
+
+
+@app.get("/verify-transaction/{txn_id}")
+def verify_transaction(txn_id: str):
+    """
+    Verify transaction integrity using blockchain.
+
+    Workflow:
+    1. Retrieve transaction from local store
+    2. Regenerate SHA256 hash from transaction data
+    3. Retrieve hash stored on blockchain
+    4. Compare hashes - if they match, transaction is VERIFIED; if different, TAMPERED
+
+    Returns:
+        {
+            "transaction_id": "...",
+            "local_hash": "0x...",
+            "blockchain_hash": "0x...",
+            "status": "VERIFIED" | "TAMPERED" | "NOT_FOUND"
+        }
+    """
+    # Get transaction from local store
+    transaction = get_transaction(txn_id)
+
+    if not transaction:
+        return {
+            "transaction_id": txn_id,
+            "status": "NOT_FOUND",
+            "message": "Transaction does not exist in system",
+        }
+
+    # Check if transaction was logged to blockchain
+    blockchain_record = get_blockchain_record(txn_id)
+
+    if not blockchain_record:
+        return {
+            "transaction_id": txn_id,
+            "status": "NOT_LOGGED",
+            "message": "Transaction was not logged to blockchain (risk_score <= 0.75)",
+        }
+
+    # Regenerate hash from local transaction data
+    local_hash = generate_transaction_hash(transaction)
+    blockchain_hash = blockchain_record.get("transaction_hash")
+
+    # Compare hashes
+    is_verified = local_hash == blockchain_hash
+
+    verification_result = {
+        "transaction_id": txn_id,
+        "local_hash": local_hash,
+        "blockchain_hash": blockchain_hash,
+        "status": "VERIFIED" if is_verified else "TAMPERED",
+        "blockchain_tx_hash": blockchain_record.get("blockchain_tx_hash"),
+        "timestamp": blockchain_record.get("timestamp"),
+    }
+
+    # Try to verify on actual blockchain if available
+    if blockchain_record.get("blockchain_tx_hash"):
+        blockchain_verification = verify_transaction_on_blockchain(txn_id, local_hash)
+        if blockchain_verification:
+            verification_result["blockchain_verification"] = blockchain_verification
+
+    return verification_result
 
 
 # ---------------------------------------

@@ -1,232 +1,314 @@
 import { useState, useEffect } from 'react'
+import { useOutletContext } from 'react-router-dom'
 import {
     ShieldCheck,
     ShieldAlert,
     Hash,
-    Link2,
-    Clock,
-    Cpu,
     RefreshCw,
-    Search,
     CheckCircle2,
-    Lock,
+    AlertCircle,
+    Loader2,
+    Eye,
 } from 'lucide-react'
+import { getHighRiskTransactions, verifyTransactionOnBlockchain } from '../services/blockchainService'
 
 export default function BlockchainVerification() {
-    const [isVerifying, setIsVerifying] = useState(false)
-    const [isVerified, setIsVerified] = useState(false)
-    const [progress, setProgress] = useState(0)
+    const [transactions, setTransactions] = useState([])
+    const [loading, setLoading] = useState(true)
+    const [verifying, setVerifying] = useState({})
+    const [verificationResults, setVerificationResults] = useState({})
+    const { searchQuery = '' } = useOutletContext()
 
-    // Mock data for the verification card
-    const txData = {
-        hash: '0x4f3a8b2c9d1e5f7a8b3c9d1e5f7a8b3c9d1e5f7a8b3c9d1e5f7a8b3c9d1e5f7a',
-        blockchainId: 'BLK-9284031-TXN-0098',
-        timestamp: new Date().toLocaleString(),
-        status: isVerified ? 'Verified' : 'Unverified',
+    // Fetch transactions on mount
+    useEffect(() => {
+        loadTransactions()
+    }, [])
+
+    const loadTransactions = async () => {
+        setLoading(true)
+        const txns = await getHighRiskTransactions()
+        setTransactions(txns)
+        setLoading(false)
     }
 
-    const handleVerify = () => {
-        setIsVerifying(true)
-        setIsVerified(false)
-        setProgress(0)
+    const handleVerify = async (transactionId) => {
+        setVerifying((prev) => ({ ...prev, [transactionId]: true }))
 
-        // Simulate verification process
-        const interval = setInterval(() => {
-            setProgress((prev) => {
-                if (prev >= 100) {
-                    clearInterval(interval)
-                    setIsVerifying(false)
-                    setIsVerified(true)
-                    return 100
-                }
-                return prev + 2
-            })
-        }, 40)
+        const result = await verifyTransactionOnBlockchain(transactionId)
+        setVerificationResults((prev) => ({
+            ...prev,
+            [transactionId]: result,
+        }))
+
+        setVerifying((prev) => ({ ...prev, [transactionId]: false }))
     }
+
+    // Filter transactions by search query
+    const filteredTransactions = transactions.filter((tx) => {
+        const searchLower = searchQuery.toLowerCase()
+        return (
+            tx.transaction_id.toLowerCase().includes(searchLower) ||
+            tx.risk_level.toLowerCase().includes(searchLower) ||
+            String(tx.risk_score).includes(searchLower)
+        )
+    })
 
     return (
-        <div className="space-y-6 animate-fade-in max-w-4xl mx-auto">
+        <div className="space-y-6 animate-fade-in">
             {/* Page Header */}
             <div>
                 <h1 className="text-xl font-bold text-white">Blockchain Verification</h1>
                 <p className="text-sm text-slate-400 mt-0.5">
-                    Verify the cryptographic integrity of fraud verdicts on the immutable ledger.
+                    Verify the cryptographic integrity of high-risk fraud verdicts on the blockchain.
                 </p>
             </div>
 
-            {/* Main Verification Panel */}
-            <div className="glass-card relative overflow-hidden p-8 border-primary-500/20">
-                {/* Cybersecurity Decorative Elements */}
-                <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
-                    <Cpu size={120} />
+            {/* Loading State */}
+            {loading && (
+                <div className="glass-card p-12 flex items-center justify-center gap-3">
+                    <Loader2 size={20} className="text-primary-400 animate-spin" />
+                    <span className="text-slate-300">Loading high-risk transactions...</span>
                 </div>
-                <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-primary-500/50 via-accent-500/50 to-primary-500/50" />
+            )}
 
-                <div className="flex flex-col md:flex-row gap-8 items-start">
-                    {/* Left Side: Status & Icon */}
-                    <div className="flex flex-col items-center gap-4 shrink-0 w-full md:w-auto">
-                        <div className={`
-              relative w-32 h-32 rounded-2xl flex items-center justify-center border-2 transition-all duration-500
-              ${isVerified ? 'bg-success-500/10 border-success-500/50 shadow-[0_0_30px_rgba(34,197,94,0.2)]' :
-                                isVerifying ? 'bg-primary-500/10 border-primary-500/50 animate-pulse' :
-                                    'bg-slate-500/10 border-slate-500/30'}
-            `}>
-                            {isVerified ? (
-                                <ShieldCheck size={64} className="text-success-400" />
-                            ) : isVerifying ? (
-                                <RefreshCw size={64} className="text-primary-400 animate-spin" />
-                            ) : (
-                                <Lock size={64} className="text-slate-500" />
-                            )}
+            {/* Empty State */}
+            {!loading && filteredTransactions.length === 0 && (
+                <div className="glass-card p-12 text-center">
+                    <ShieldCheck size={48} className="mx-auto text-slate-500 mb-4 opacity-50" />
+                    <p className="text-slate-300 font-medium">
+                        {searchQuery ? `No transactions found for "${searchQuery}"` : 'No high-risk transactions to verify'}
+                    </p>
+                    <p className="text-slate-400 text-sm mt-2">
+                        HIGH risk transactions with blockchain records will appear here.
+                    </p>
+                </div>
+            )}
 
-                            {/* Verified Badge overlay */}
-                            {isVerified && (
-                                <div className="absolute -bottom-2 -right-2 bg-success-500 text-white rounded-full p-1 shadow-lg">
-                                    <CheckCircle2 size={24} />
-                                </div>
-                            )}
-                        </div>
+            {/* Transactions Table */}
+            {!loading && filteredTransactions.length > 0 && (
+                <div className="glass-card overflow-hidden">
+                    {/* Table Header */}
+                    <div className="overflow-x-auto">
+                        <table className="w-full">
+                            <thead>
+                                <tr className="border-b border-white/10 bg-white/5">
+                                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">
+                                        Transaction ID
+                                    </th>
+                                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">
+                                        Risk Score
+                                    </th>
+                                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">
+                                        Blockchain Hash
+                                    </th>
+                                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">
+                                        Status
+                                    </th>
+                                    <th className="px-6 py-4 text-center text-xs font-bold text-slate-400 uppercase tracking-wider">
+                                        Action
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-white/10">
+                                {filteredTransactions.map((tx) => {
+                                    const verification = verificationResults[tx.transaction_id]
+                                    const isVerifying = verifying[tx.transaction_id]
+                                    const isVerified = verification?.status === 'VERIFIED'
+                                    const isTampered = verification?.status === 'TAMPERED'
+                                    const notLogged = verification?.status === 'NOT_LOGGED'
 
-                        <div className="text-center">
-                            <p className={`text-xs font-bold uppercase tracking-widest ${isVerified ? 'text-success-400' : 'text-slate-500'}`}>
-                                System Status
-                            </p>
-                            <p className={`text-lg font-mono font-bold ${isVerified ? 'text-white' : 'text-slate-400'}`}>
-                                {isVerified ? 'SECURE' : isVerifying ? 'SCANNING...' : 'IDLE'}
-                            </p>
-                        </div>
+                                    const blockchainHash = verification?.blockchain_hash ||
+                                        tx.blockchain_record?.transaction_hash ||
+                                        tx.blockchain_log?.transaction_hash
+
+                                    return (
+                                        <tr
+                                            key={tx.transaction_id}
+                                            className="hover:bg-white/5 transition-colors"
+                                        >
+                                            {/* Transaction ID */}
+                                            <td className="px-6 py-4">
+                                                <div className="flex items-center gap-2">
+                                                    <Hash size={14} className="text-slate-500" />
+                                                    <span className="font-mono text-sm text-slate-200" title={tx.transaction_id}>
+                                                        {tx.transaction_id.slice(0, 16)}...
+                                                    </span>
+                                                </div>
+                                            </td>
+
+                                            {/* Risk Score */}
+                                            <td className="px-6 py-4">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-sm font-bold text-red-400">
+                                                        {tx.risk_score?.toFixed(2)}
+                                                    </span>
+                                                    <span className="text-xs text-slate-400">(HIGH)</span>
+                                                </div>
+                                            </td>
+
+                                            {/* Blockchain Hash */}
+                                            <td className="px-6 py-4">
+                                                {blockchainHash ? (
+                                                    <span
+                                                        className="font-mono text-xs text-slate-300 cursor-help"
+                                                        title={blockchainHash}
+                                                    >
+                                                        {blockchainHash.slice(0, 20)}...
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-xs text-slate-500">Not available</span>
+                                                )}
+                                            </td>
+
+                                            {/* Verification Status */}
+                                            <td className="px-6 py-4">
+                                                {isVerifying ? (
+                                                    <div className="flex items-center gap-2">
+                                                        <Loader2 size={14} className="text-primary-400 animate-spin" />
+                                                        <span className="text-xs text-primary-400">Verifying...</span>
+                                                    </div>
+                                                ) : isVerified ? (
+                                                    <div className="flex items-center gap-2">
+                                                        <CheckCircle2 size={14} className="text-success-400" />
+                                                        <span className="text-xs font-semibold text-success-400">
+                                                            Blockchain Verified
+                                                        </span>
+                                                    </div>
+                                                ) : isTampered ? (
+                                                    <div className="flex items-center gap-2">
+                                                        <AlertCircle size={14} className="text-red-400" />
+                                                        <span className="text-xs font-semibold text-red-400">
+                                                            Data Tampered
+                                                        </span>
+                                                    </div>
+                                                ) : notLogged ? (
+                                                    <div className="flex items-center gap-2">
+                                                        <ShieldCheck size={14} className="text-slate-500" />
+                                                        <span className="text-xs font-semibold text-slate-400">
+                                                            Not Logged
+                                                        </span>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-xs text-slate-500">Pending verification</span>
+                                                )}
+                                            </td>
+
+                                            {/* Action Button */}
+                                            <td className="px-6 py-4 text-center">
+                                                <button
+                                                    onClick={() => handleVerify(tx.transaction_id)}
+                                                    disabled={isVerifying}
+                                                    className={`
+                                        inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold
+                                        uppercase tracking-wider transition-all
+                                        ${isVerifying
+                                            ? 'bg-white/5 text-slate-500 cursor-not-allowed'
+                                            : isVerified
+                                                ? 'bg-success-600/20 text-success-400 border border-success-500/30 hover:bg-success-600/30'
+                                                : isTampered
+                                                    ? 'bg-red-600/20 text-red-400 border border-red-500/30 hover:bg-red-600/30'
+                                                    : 'bg-primary-600/20 text-primary-400 border border-primary-500/30 hover:bg-primary-600/30'
+                                        }
+                                    `}
+                                                >
+                                                    {isVerifying ? (
+                                                        <>
+                                                            <Loader2 size={12} className="animate-spin" />
+                                                            Verifying
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <Eye size={12} />
+                                                            Verify
+                                                        </>
+                                                    )}
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    )
+                                })}
+                            </tbody>
+                        </table>
                     </div>
+                </div>
+            )}
 
-                    {/* Right Side: Data Fields */}
-                    <div className="flex-1 space-y-6 w-full">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <DataField
-                                label="Transaction Hash"
-                                value={txData.hash}
-                                icon={Hash}
-                                monospace
-                                truncate
-                            />
-                            <DataField
-                                label="Blockchain TX ID"
-                                value={txData.blockchainId}
-                                icon={Link2}
-                                monospace
-                            />
-                            <DataField
-                                label="Timestamp"
-                                value={txData.timestamp}
-                                icon={Clock}
-                            />
-                            <DataField
-                                label="Verification Status"
-                                value={txData.status}
-                                icon={ShieldCheck}
-                                highlight={isVerified}
-                            />
-                        </div>
+            {/* Verification Details Modal (if any transaction verified) */}
+            {Object.values(verificationResults).some((r) => r && r.status !== 'NOT_LOGGED') && (
+                <div className="glass-card p-6 space-y-4">
+                    <h2 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                        <CheckCircle2 size={16} className="text-primary-400" />
+                        Verification Details
+                    </h2>
 
-                        {/* Verification Button & Progress */}
-                        <div className="pt-4 space-y-4">
-                            <button
-                                onClick={handleVerify}
-                                disabled={isVerifying}
-                                className={`
-                  w-full py-4 px-6 rounded-xl font-bold text-sm uppercase tracking-widest transition-all
-                  flex items-center justify-center gap-3
-                  ${isVerifying ? 'bg-white/5 text-slate-500 cursor-not-allowed' :
-                                        isVerified ? 'bg-success-600/20 text-success-400 border border-success-500/30 hover:bg-success-600/30' :
-                                            'bg-primary-600 hover:bg-primary-500 text-white shadow-glow-blue border border-primary-400/30'}
-                `}
-                            >
-                                {isVerifying ? (
-                                    <>
-                                        <RefreshCw size={18} className="animate-spin" />
-                                        Analyzing Cryptographic Chain...
-                                    </>
-                                ) : isVerified ? (
-                                    <>
-                                        <RefreshCw size={18} />
-                                        Re-Verify Integrity
-                                    </>
-                                ) : (
-                                    <>
-                                        <Search size={18} />
-                                        Verify Integrity
-                                    </>
-                                )}
-                            </button>
-
-                            {/* Progress Bar (Only during verification) */}
-                            {isVerifying && (
-                                <div className="space-y-2">
-                                    <div className="flex justify-between text-[10px] font-mono text-primary-400 uppercase">
-                                        <span>Checking Merkle Tree...</span>
-                                        <span>{progress}%</span>
+                    <div className="space-y-3 max-h-96 overflow-y-auto">
+                        {Object.entries(verificationResults)
+                            .filter(([_, result]) => result && result.status !== 'NOT_LOGGED')
+                            .map(([txId, result]) => (
+                                <div
+                                    key={txId}
+                                    className={`
+                        p-4 rounded-lg border
+                        ${result.status === 'VERIFIED'
+                            ? 'bg-success-500/10 border-success-500/20'
+                            : result.status === 'TAMPERED'
+                                ? 'bg-red-500/10 border-red-500/20'
+                                : 'bg-slate-500/10 border-slate-500/20'
+                        }
+                    `}
+                                >
+                                    <div className="flex items-start justify-between gap-3 mb-2">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            {result.status === 'VERIFIED' ? (
+                                                <CheckCircle2 size={16} className="text-success-400 shrink-0" />
+                                            ) : result.status === 'TAMPERED' ? (
+                                                <AlertCircle size={16} className="text-red-400 shrink-0" />
+                                            ) : null}
+                                            <span className="font-mono text-xs text-slate-300 truncate">
+                                                {txId.slice(0, 20)}...
+                                            </span>
+                                        </div>
+                                        <span
+                                            className={`
+                            text-xs font-bold uppercase tracking-wider whitespace-nowrap
+                            ${result.status === 'VERIFIED' ? 'text-success-400' : 'text-red-400'}
+                        `}
+                                        >
+                                            {result.status}
+                                        </span>
                                     </div>
-                                    <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
-                                        <div
-                                            className="h-full bg-primary-500 transition-all duration-75 ease-out shadow-[0_0_10px_#6366f1]"
-                                            style={{ width: `${progress}%` }}
-                                        />
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px]">
+                                        <div>
+                                            <p className="text-slate-500 mb-1">Local Hash</p>
+                                            <p
+                                                className="font-mono text-slate-300 truncate"
+                                                title={result.local_hash}
+                                            >
+                                                {result.local_hash?.slice(0, 24)}...
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <p className="text-slate-500 mb-1">Blockchain Hash</p>
+                                            <p
+                                                className="font-mono text-slate-300 truncate"
+                                                title={result.blockchain_hash}
+                                            >
+                                                {result.blockchain_hash?.slice(0, 24)}...
+                                            </p>
+                                        </div>
                                     </div>
+
+                                    {result.timestamp && (
+                                        <p className="text-[10px] text-slate-500 mt-2">
+                                            {new Date(result.timestamp).toLocaleString()}
+                                        </p>
+                                    )}
                                 </div>
-                            )}
-
-                            {/* Success Message */}
-                            {isVerified && !isVerifying && (
-                                <div className="bg-success-500/10 border border-success-500/30 p-4 rounded-xl flex items-center gap-3 animate-slide-up">
-                                    <div className="shrink-0 w-8 h-8 rounded-full bg-success-500/20 flex items-center justify-center">
-                                        <CheckCircle2 size={18} className="text-success-400" />
-                                    </div>
-                                    <div>
-                                        <p className="text-sm font-bold text-success-300">Integrity Verified</p>
-                                        <p className="text-xs text-success-400/80">Hash matches blockchain record. This verdict is immutable.</p>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
+                            ))}
                     </div>
                 </div>
-            </div>
-
-            {/* Audit Log Stub (Cybersecurity feel) */}
-            <div className="glass-card p-6 opacity-60">
-                <div className="flex items-center gap-2 mb-4">
-                    <Cpu size={16} className="text-slate-400" />
-                    <h2 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Node Audit Logs</h2>
-                </div>
-                <div className="font-mono text-[10px] space-y-1 text-slate-500 overflow-hidden">
-                    <p>[{new Date().toISOString()}] NODE_ALPHA: Handshake established with mainnet-v4</p>
-                    <p>[{new Date().toISOString()}] NODE_ALPHA: Syncing block headers 19,284,031... OK</p>
-                    <p>[{new Date().toISOString()}] SYSTEM: Waiting for integrity request...</p>
-                </div>
-            </div>
-        </div>
-    )
-}
-
-function DataField({ label, value, icon: Icon, monospace, truncate, highlight }) {
-    return (
-        <div className="space-y-1.5">
-            <label className="flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                <Icon size={12} className="text-slate-600" />
-                {label}
-            </label>
-            <div className={`
-        p-3 rounded-xl bg-white/5 border border-white/10 transition-colors
-        ${highlight ? 'border-success-500/30 bg-success-500/5' : ''}
-      `}>
-                <span className={`
-          text-sm block
-          ${monospace ? 'font-mono' : 'font-medium'}
-          ${truncate ? 'truncate' : ''}
-          ${highlight ? 'text-success-400' : 'text-slate-200'}
-        `}
-                    title={value}>
-                    {value}
-                </span>
-            </div>
+            )}
         </div>
     )
 }

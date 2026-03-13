@@ -3,7 +3,8 @@ import time
 from itertools import cycle
 
 from app.decision_engine import analyze_transaction
-from app.transaction_store import save_transaction
+from app.transaction_store import save_transaction, save_blockchain_record
+from app.blockchain_logger import log_fraud_to_blockchain, generate_transaction_hash
 
 
 LOCATIONS = [
@@ -121,6 +122,12 @@ def generate_and_store_transaction():
         "reasons": [],
         "source": "AUTO_GENERATED",
     }
+
+    # Log HIGH risk transactions to blockchain for audit trail
+    if analysis["risk_score"] > 0.75 and analysis["risk_level"] == "HIGH":
+        blockchain_record = log_fraud_to_blockchain(stored_transaction)
+        stored_transaction["blockchain_log"] = blockchain_record
+        save_blockchain_record(transaction["id"], blockchain_record)
 
     save_transaction(transaction["id"], stored_transaction)
     return stored_transaction

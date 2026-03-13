@@ -76,28 +76,29 @@ def _calculate_demo_risk(features, model_probability):
 
     amount = features["amount"]
     if amount > 50000:
-        heuristic_score += 0.35
+        heuristic_score += 0.40  # Increased from 0.35
     elif amount > 10000:
-        heuristic_score += 0.18
+        heuristic_score += 0.20  # Increased from 0.18
     elif amount > 3000:
-        heuristic_score += 0.08
+        heuristic_score += 0.10  # Increased from 0.08
 
     if features["location_distance"] > 1000:
-        heuristic_score += 0.20
+        heuristic_score += 0.25  # Increased from 0.20
 
     if features["device_mismatch"] == 1:
-        heuristic_score += 0.15
+        heuristic_score += 0.20  # Increased from 0.15
 
     if features["new_merchant"] == 1:
-        heuristic_score += 0.15
+        heuristic_score += 0.20  # Increased from 0.15
 
     if features["velocity"] >= 5:
-        heuristic_score += 0.07
+        heuristic_score += 0.10  # Increased from 0.07
 
     if features["failed_logins"] >= 3:
-        heuristic_score += 0.05
+        heuristic_score += 0.10  # Increased from 0.05
 
-    blended_score = (0.45 * model_probability) + (0.55 * min(heuristic_score, 1.0))
+    # Use higher heuristic weight (70% heuristic, 30% model)
+    blended_score = (0.30 * model_probability) + (0.70 * min(heuristic_score, 1.0))
     return float(round(min(blended_score, 1.0), 2))
 
 
