@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from pathlib import Path
 
 np.random.seed(42)
 
@@ -16,15 +17,40 @@ data = pd.DataFrame({
     "ip_risk": np.random.choice([0,1],n,p=[0.9,0.1])
 })
 
+# -----------------------------
+# Behavior Score
+# -----------------------------
+
+data["behavior_score"] = (
+    data["device_mismatch"]
+    + data["unusual_time"]
+    + data["ip_risk"]
+    + data["failed_logins"]
+)
+
+# -----------------------------
+# Fraud Pattern Logic
+# -----------------------------
+
 fraud = (
-(data["amount"]>50000) |
-(data["location_distance"]>500) |
-(data["device_mismatch"]==1) |
-(data["velocity"]>5)
+    (data["amount"] > 50000) |
+    (data["location_distance"] > 500) |
+    (data["device_mismatch"] == 1) |
+    (data["velocity"] > 5) |
+    (data["behavior_score"] >= 3)
 )
 
 data["fraud"] = fraud.astype(int)
 
-data.to_csv("dataset/transactions.csv",index=False)
+# -----------------------------
+# Save Dataset
+# -----------------------------
+
+dataset_path = Path("dataset")
+dataset_path.mkdir(exist_ok=True)
+
+data.to_csv(dataset_path / "transactions.csv", index=False)
 
 print("Dataset created successfully")
+print(f"Total transactions: {len(data)}")
+print(f"Fraud cases: {data['fraud'].sum()}")

@@ -16,7 +16,6 @@ if not model_path.exists():
 
 model = joblib.load(model_path)
 
-
 # -----------------------------
 # Feature Order Used in Training
 # -----------------------------
@@ -29,9 +28,9 @@ FEATURE_COLUMNS = [
     "unusual_time",
     "new_merchant",
     "failed_logins",
-    "ip_risk"
+    "ip_risk",
+    "behavior_score"
 ]
-
 
 # -----------------------------
 # Rule-Based Risk Score
@@ -64,7 +63,6 @@ def calculate_risk(features):
 
     return round(min(score, 1), 2)
 
-
 # -----------------------------
 # Explainable AI Reasons
 # -----------------------------
@@ -73,10 +71,10 @@ def explain(features):
 
     reasons = []
 
-    if features["amount"] > 50000:
+    if features["amount"] > 5000:
         reasons.append("Large transaction amount")
 
-    if features["location_distance"] > 500:
+    if features["location_distance"] > 40:
         reasons.append("Location anomaly")
 
     if features["device_mismatch"] == 1:
@@ -99,14 +97,27 @@ def explain(features):
 
     return reasons
 
-
 # -----------------------------
 # Fraud Detection Engine
 # -----------------------------
 
 def detect_transaction(features):
 
+    # -----------------------------
+    # Calculate Behavior Score
+    # -----------------------------
+
+    features["behavior_score"] = (
+        features["device_mismatch"]
+        + features["unusual_time"]
+        + features["ip_risk"]
+        + features["failed_logins"]
+    )
+
+    # -----------------------------
     # Convert input into DataFrame
+    # -----------------------------
+
     X_df = pd.DataFrame([[
         features["amount"],
         features["location_distance"],
@@ -115,10 +126,14 @@ def detect_transaction(features):
         features["unusual_time"],
         features["new_merchant"],
         features["failed_logins"],
-        features["ip_risk"]
+        features["ip_risk"],
+        features["behavior_score"]
     ]], columns=FEATURE_COLUMNS)
 
+    # -----------------------------
     # ML Prediction
+    # -----------------------------
+
     prediction = model.predict(X_df)
 
     # ML anomaly score
@@ -141,7 +156,10 @@ def detect_transaction(features):
     if prediction[0] == -1:
         reasons.append("AI anomaly model detected abnormal transaction pattern")
 
-    # Import chain monitor
+    # -----------------------------
+    # Transaction Chain Monitoring
+    # -----------------------------
+
     from transaction_monitor import monitor_transaction
     chain_detected = monitor_transaction(features)
 
@@ -155,20 +173,31 @@ def detect_transaction(features):
     # Fraud probability
     fraud_probability = round(final_risk * 100, 2)
 
+    # -----------------------------
     # Risk classification
-    if final_risk > 0.85:
+    # -----------------------------
+
+    if final_risk >= 0.9:
         status = "CRITICAL FRAUD"
-    elif final_risk > 0.6:
+        action = "USER_VERIFY_THEN_BANK"
+
+    elif final_risk >= 0.6:
         status = "HIGH RISK"
-    elif final_risk > 0.3:
+        action = "USER_VERIFICATION_ONLY"
+
+    elif final_risk >= 0.4:
         status = "SUSPICIOUS"
+        action = "MONITOR"
+
     else:
         status = "SAFE"
+        action = "ALLOW"
 
     return {
         "risk_score": final_risk,
         "fraud_probability": fraud_probability,
         "status": status,
+        "action": action,
         "ai_detected": prediction[0] == -1,
         "reasons": reasons
     }
