@@ -12,6 +12,7 @@ import {
 import RiskResultCard from '../components/RiskResultCard'
 import FraudAlertPanel from '../components/FraudAlertPanel'
 import { simulateAnalysisApi } from '../services/riskService'
+import { confirmUserTransaction } from '../services/transactionService'
 
 // ─── Field component ──────────────────────────────────────────────────────────
 function FormField({ label, name, icon: Icon, type = 'text', placeholder, value, onChange }) {
@@ -64,6 +65,28 @@ export default function SimulateTransaction() {
         } finally {
             setLoading(false)
         }
+    }
+
+    const handleConfirm = async () => {
+        setAlertOpen(false)
+        if (result?.txId) {
+            try {
+                await confirmUserTransaction(result.txId, 'approve')
+            } catch (err) {
+                console.error('Failed to confirm transaction:', err)
+            }
+        }
+    }
+
+    const handleReportFraud = async () => {
+        if (result?.txId) {
+            try {
+                await confirmUserTransaction(result.txId, 'reject')
+            } catch (err) {
+                console.error('Failed to report fraud:', err)
+            }
+        }
+        setTimeout(() => setAlertOpen(false), 1200)
     }
 
     return (
@@ -155,8 +178,8 @@ export default function SimulateTransaction() {
                 riskScore={result?.riskScore}
                 reasons={result?.reasons ?? []}
                 txId={result?.txId}
-                onConfirm={() => setAlertOpen(false)}
-                onReportFraud={() => setTimeout(() => setAlertOpen(false), 1200)}
+                onConfirm={handleConfirm}
+                onReportFraud={handleReportFraud}
                 onClose={() => setAlertOpen(false)}
             />
         </div>

@@ -62,3 +62,16 @@ export async function updateTransactionStatus(txId, status) {
     })
     return !response.error
 }
+
+/**
+ * Sends user's confirmation decision for a flagged transaction.
+ * @param {string} txId - The transaction ID
+ * @param {'approve'|'reject'} decision
+ * @returns {Promise<Object>}
+ */
+export async function confirmUserTransaction(txId, decision) {
+    return apiClient.post('/user_confirm_transaction', {
+        transaction_id: txId,
+        decision,
+    })
+}
