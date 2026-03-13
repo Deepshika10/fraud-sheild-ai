@@ -71,6 +71,36 @@ def _model_prediction(features):
     return 1 if prediction == -1 else 0
 
 
+def _calculate_demo_risk(features, model_probability):
+    heuristic_score = 0.0
+
+    amount = features["amount"]
+    if amount > 50000:
+        heuristic_score += 0.35
+    elif amount > 10000:
+        heuristic_score += 0.18
+    elif amount > 3000:
+        heuristic_score += 0.08
+
+    if features["location_distance"] > 1000:
+        heuristic_score += 0.20
+
+    if features["device_mismatch"] == 1:
+        heuristic_score += 0.15
+
+    if features["new_merchant"] == 1:
+        heuristic_score += 0.15
+
+    if features["velocity"] >= 5:
+        heuristic_score += 0.07
+
+    if features["failed_logins"] >= 3:
+        heuristic_score += 0.05
+
+    blended_score = (0.45 * model_probability) + (0.55 * min(heuristic_score, 1.0))
+    return float(round(min(blended_score, 1.0), 2))
+
+
 def extract_features_for_model(transaction_data):
     location = str(transaction_data.get("location", "")).lower()
     device = str(transaction_data.get("device", "")).lower()
@@ -101,7 +131,7 @@ def analyze_transaction(transaction_data):
         # Fallback if model is unavailable.
         model_probability = 0.5
 
-    risk_score = float(round(float(model_probability), 2))
+    risk_score = _calculate_demo_risk(features, float(model_probability))
     if risk_score >= 0.7:
         risk_level = "HIGH"
     elif risk_score >= 0.4:

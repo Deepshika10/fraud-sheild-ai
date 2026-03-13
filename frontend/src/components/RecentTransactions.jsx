@@ -30,7 +30,7 @@ function RiskBar({ score }) {
     )
 }
 
-export default function RecentTransactions() {
+export default function RecentTransactions({ searchQuery = '' }) {
     const [transactions, setTransactions] = useState([])
 
     useEffect(() => {
@@ -56,6 +56,15 @@ export default function RecentTransactions() {
         load()
     }, [])
 
+    const normalizedQuery = searchQuery.trim().toLowerCase()
+    const displayedTransactions = normalizedQuery
+        ? transactions.filter((tx) =>
+            [tx.id, tx.merchant, tx.method, tx.status].some((value) =>
+                String(value).toLowerCase().includes(normalizedQuery)
+            )
+        )
+        : transactions
+
     return (
         <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -69,7 +78,15 @@ export default function RecentTransactions() {
                     </tr>
                 </thead>
                 <tbody>
-                    {transactions.map((tx) => {
+                    {displayedTransactions.length === 0 ? (
+                        <tr>
+                            <td colSpan={6} className="py-12 px-3 text-center text-slate-500 text-sm">
+                                {normalizedQuery
+                                    ? `No transactions found for "${searchQuery}"`
+                                    : 'No transactions available yet'}
+                            </td>
+                        </tr>
+                    ) : displayedTransactions.map((tx) => {
                         const sc = statusConfig[tx.status]
                         return (
                             <tr key={tx.id} className="table-row-hover border-b border-white/5 last:border-0 cursor-pointer">

@@ -44,7 +44,12 @@ export async function getActiveAlerts() {
     const rows = Object.values(data)
 
     return rows
-        .filter(tx => tx.status !== 'APPROVED' && tx.status !== 'BLOCKED')
+        .filter(
+            tx =>
+                tx.risk_level === 'HIGH' &&
+                tx.status !== 'APPROVED' &&
+                tx.status !== 'BLOCKED'
+        )
         .map((tx, index) => {
             const riskScore = Math.round(Number(tx.risk_score || 0) * 100)
             const amount = Number(tx.features?.amount || 0)

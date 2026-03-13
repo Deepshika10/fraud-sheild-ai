@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useOutletContext } from 'react-router-dom'
 import { ShieldAlert, Filter, Clock, DollarSign, RefreshCw } from 'lucide-react'
 
 // Components
@@ -8,6 +9,7 @@ import SeverityBadge from '../components/SeverityBadge'
 import { getActiveAlerts, processAlertAction } from '../services/alertService'
 
 export default function FraudAlerts() {
+    const { searchQuery = '' } = useOutletContext()
     const [alerts, setAlerts] = useState([])
     const [loading, setLoading] = useState(true)
     const [filter, setFilter] = useState('All')
@@ -41,7 +43,15 @@ export default function FraudAlerts() {
         }
     }
 
-    const shown = filter === 'All' ? alerts : alerts.filter(a => a.severity === filter)
+    const shownBySeverity = filter === 'All' ? alerts : alerts.filter(a => a.severity === filter)
+    const normalizedQuery = searchQuery.trim().toLowerCase()
+    const shown = normalizedQuery
+        ? shownBySeverity.filter((a) =>
+            [a.txId, a.id, a.type, a.severity, a.location].some((value) =>
+                String(value).toLowerCase().includes(normalizedQuery)
+            )
+        )
+        : shownBySeverity
 
     return (
         <div className="space-y-5 animate-fade-in">
@@ -70,7 +80,11 @@ export default function FraudAlerts() {
                     </div>
                 ) : shown.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-20 text-slate-500 bg-white/2 rounded-2xl border border-white/5 border-dashed">
-                        <p className="text-sm font-medium">No alerts matching "{filter}"</p>
+                        <p className="text-sm font-medium">
+                            {normalizedQuery
+                                ? `No alerts found for "${searchQuery}"`
+                                : `No alerts matching "${filter}"`}
+                        </p>
                         <p className="text-[11px] mt-1">Systems are functioning within normal parameters.</p>
                     </div>
                 ) : (

@@ -19,6 +19,9 @@ function toUserResponse(status) {
     if (status === 'WAITING_BANK_APPROVAL') {
         return 'Confirmed Legitimate'
     }
+    if (status === 'WAITING_OTP_VERIFICATION') {
+        return 'OTP Required'
+    }
     if (status === 'BLOCKED') {
         return 'Disputed'
     }

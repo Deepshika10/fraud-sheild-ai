@@ -5,6 +5,7 @@ import TopNavbar from './TopNavbar'
 
 export default function Layout() {
     const [sidebarOpen, setSidebarOpen] = useState(false)
+    const [searchQuery, setSearchQuery] = useState('')
 
     return (
         <div className="flex h-screen overflow-hidden">
@@ -29,9 +30,13 @@ export default function Layout() {
 
             {/* Main content */}
             <div className="flex-1 flex flex-col overflow-hidden">
-                <TopNavbar onMenuClick={() => setSidebarOpen(true)} />
+                <TopNavbar
+                    onMenuClick={() => setSidebarOpen(true)}
+                    searchQuery={searchQuery}
+                    onSearchChange={setSearchQuery}
+                />
                 <main className="flex-1 overflow-y-auto p-4 md:p-6 animate-fade-in">
-                    <Outlet />
+                    <Outlet context={{ searchQuery }} />
                 </main>
             </div>
         </div>

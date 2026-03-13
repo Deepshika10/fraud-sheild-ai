@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useOutletContext } from 'react-router-dom'
 import MetricCard from '../components/MetricCard'
 import RecentTransactions from '../components/RecentTransactions'
 import RiskChart from '../components/RiskChart'
@@ -12,6 +13,7 @@ import {
 } from 'lucide-react'
 
 export default function Dashboard() {
+    const { searchQuery = '' } = useOutletContext()
     const [analytics, setAnalytics] = useState({
         total_transactions: 0,
         high_risk_transactions: 0,
@@ -174,7 +176,7 @@ export default function Dashboard() {
                         View all →
                     </button>
                 </div>
-                <RecentTransactions />
+                <RecentTransactions searchQuery={searchQuery} />
             </div>
         </div>
     )

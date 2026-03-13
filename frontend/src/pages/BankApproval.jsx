@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useOutletContext } from 'react-router-dom'
 import {
     Building2,
     CheckCircle2,
@@ -58,6 +59,7 @@ function Toast({ toast, onDismiss }) {
 
 // ─── Main page ─────────────────────────────────────────────────────────────────
 export default function BankApproval() {
+    const { searchQuery = '' } = useOutletContext()
     const [transactions, setTransactions] = useState([])
     const [loading, setLoading] = useState(true)
     const [toasts, setToasts] = useState([])
@@ -115,7 +117,15 @@ export default function BankApproval() {
         Rejected: transactions.filter(t => t.status === 'Rejected').length,
     }
 
-    const displayed = filter === 'All' ? transactions : transactions.filter(t => t.status === filter)
+    const displayedByStatus = filter === 'All' ? transactions : transactions.filter(t => t.status === filter)
+    const normalizedQuery = searchQuery.trim().toLowerCase()
+    const displayed = normalizedQuery
+        ? displayedByStatus.filter((t) =>
+            [t.id, t.userResponse, t.fraudReason, t.status].some((value) =>
+                String(value).toLowerCase().includes(normalizedQuery)
+            )
+        )
+        : displayedByStatus
 
     return (
         <div className="space-y-5 animate-fade-in">
@@ -223,7 +233,9 @@ export default function BankApproval() {
                             ) : displayed.length === 0 ? (
                                 <tr>
                                     <td colSpan={7} className="py-20 text-center text-slate-500 text-sm">
-                                        No transactions match the current filter.
+                                        {normalizedQuery
+                                            ? `No transactions found for "${searchQuery}"`
+                                            : 'No transactions match the current filter.'}
                                     </td>
                                 </tr>
                             ) : (

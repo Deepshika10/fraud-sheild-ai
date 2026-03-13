@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from threading import Event, Thread
 import uuid
 
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,7 +9,9 @@ from app.transaction_store import (
     get_transaction,
     update_transaction_status,
     get_all_transactions,
+    get_all_transactions_list,
 )
+from app.transaction_generator import run_transaction_generator
 
 from app.blockchain_logger import log_fraud_to_blockchain
 
@@ -20,6 +23,27 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+def start_transaction_generator():
+    stop_event = Event()
+    generator_thread = Thread(
+        target=run_transaction_generator,
+        args=(stop_event,),
+        daemon=True,
+        name="transaction-generator",
+    )
+    generator_thread.start()
+    app.state.transaction_generator_stop_event = stop_event
+    app.state.transaction_generator_thread = generator_thread
+
+
+@app.on_event("shutdown")
+def stop_transaction_generator():
+    stop_event = getattr(app.state, "transaction_generator_stop_event", None)
+    if stop_event is not None:
+        stop_event.set()
 
 
 @app.get("/")
@@ -77,7 +101,7 @@ def create_transaction(features: dict):
         status = "APPROVED"
 
     elif risk_level == "MEDIUM":
-        status = "WAITING_USER_CONFIRMATION"
+        status = "WAITING_OTP_VERIFICATION"
 
     else:
         status = "HIGH_RISK_WAITING_USER"
@@ -132,6 +156,15 @@ def user_confirm_transaction(data: dict):
                 "transaction": get_transaction(txn_id),
             }
 
+        elif transaction["risk_level"] == "MEDIUM":
+
+            update_transaction_status(txn_id, "APPROVED")
+
+            return {
+                "message": "OTP verified successfully. Transaction approved.",
+                "transaction": get_transaction(txn_id),
+            }
+
         else:
 
             update_transaction_status(txn_id, "APPROVED")
@@ -144,6 +177,12 @@ def user_confirm_transaction(data: dict):
     else:
 
         update_transaction_status(txn_id, "BLOCKED")
+
+        if transaction["risk_level"] == "MEDIUM":
+            return {
+                "message": "OTP verification failed. Transaction blocked.",
+                "transaction": get_transaction(txn_id),
+            }
 
         return {
             "message": "Transaction blocked by user",
@@ -193,8 +232,7 @@ def bank_approve_transaction(data: dict):
 
 @app.get("/transactions")
 def get_transactions():
-
-    return get_all_transactions()
+    return get_all_transactions_list()
 
 
 # ---------------------------------------

@@ -1,6 +1,6 @@
 import { Bell, Search, Menu, Wifi } from 'lucide-react'
 
-export default function TopNavbar({ onMenuClick }) {
+export default function TopNavbar({ onMenuClick, searchQuery, onSearchChange }) {
     const now = new Date()
     const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
     const dateStr = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
@@ -22,6 +22,8 @@ export default function TopNavbar({ onMenuClick }) {
                     <input
                         type="text"
                         placeholder="Search transactions, alerts..."
+                        value={searchQuery}
+                        onChange={(e) => onSearchChange(e.target.value)}
                         className="w-full pl-9 pr-4 py-2 bg-white/5 border border-white/8 rounded-xl text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-primary-500/50 focus:bg-white/8 transition-all"
                     />
                 </div>
