@@ -3,35 +3,74 @@
  * Handles fraud alerts and mitigation actions.
  */
 
-const ALERTS = [
-    { id: 'ALT-0012', txId: 'TXN-009841', type: 'Card Cloning', severity: 'Critical', amount: '$4,200', time: '2 min ago', location: 'Lagos, Nigeria' },
-    { id: 'ALT-0011', txId: 'TXN-009835', type: 'Wire Fraud', severity: 'Critical', amount: '$12,400', time: '18 min ago', location: 'Unknown' },
-    { id: 'ALT-0010', txId: 'TXN-009839', type: 'Velocity Abuse', severity: 'High', amount: '$8,950', time: '42 min ago', location: 'Dubai, UAE' },
-    { id: 'ALT-0009', txId: 'TXN-009833', type: 'Account Takeover', severity: 'High', amount: '$3,200', time: '1h ago', location: 'Moscow, Russia' },
-    { id: 'ALT-0008', txId: 'TXN-009827', type: 'Identity Theft', severity: 'High', amount: '$7,650', time: '2h ago', location: 'Bucharest, RO' },
-    { id: 'ALT-0007', txId: 'TXN-009816', type: 'Unusual Location', severity: 'Medium', amount: '$1,100', time: '3h ago', location: 'Beijing, China' },
-    { id: 'ALT-0006', txId: 'TXN-009804', type: 'New Device Login', severity: 'Medium', amount: '$540', time: '5h ago', location: 'Toronto, Canada' },
-    { id: 'ALT-0005', txId: 'TXN-009788', type: 'Chargeback Risk', severity: 'Low', amount: '$89', time: '8h ago', location: 'London, UK' },
-];
+import { apiClient } from './apiClient'
+
+function severityFromScore(score) {
+    if (score >= 85) {
+        return 'Critical'
+    }
+    if (score >= 70) {
+        return 'High'
+    }
+    if (score >= 40) {
+        return 'Medium'
+    }
+    return 'Low'
+}
+
+function alertTypeFromReasons(reasons) {
+    const text = (reasons || []).join(' ').toLowerCase()
+    if (text.includes('location')) {
+        return 'Unusual Location'
+    }
+    if (text.includes('device')) {
+        return 'New Device Login'
+    }
+    if (text.includes('velocity') || text.includes('frequency')) {
+        return 'Velocity Abuse'
+    }
+    if (text.includes('ip')) {
+        return 'Risky IP Pattern'
+    }
+    return 'Fraud Risk Alert'
+}
 
 /**
  * Fetches active fraud alerts.
  * @returns {Promise<Array>}
  */
 export async function getActiveAlerts() {
-    // Simulate API delay
-    await new Promise(r => setTimeout(r, 700));
-    return [...ALERTS];
+    const data = await apiClient.get('/transactions')
+    const rows = Object.values(data)
+
+    return rows
+        .filter(tx => tx.status !== 'APPROVED' && tx.status !== 'BLOCKED')
+        .map((tx, index) => {
+            const riskScore = Math.round(Number(tx.risk_score || 0) * 100)
+            const amount = Number(tx.features?.amount || 0)
+            return {
+                id: `ALT-${String(index + 1).padStart(4, '0')}`,
+                txId: tx.transaction_id,
+                type: alertTypeFromReasons(tx.reasons),
+                severity: severityFromScore(riskScore),
+                amount: `$${amount.toLocaleString('en-US')}`,
+                time: 'Live',
+                location: 'Unknown',
+            }
+        })
 }
 
 /**
  * Processes an alert mitigation action.
- * @param {string} alertId 
+ * @param {string} txId 
  * @param {string} action - 'Approve' | 'Block'
  * @returns {Promise<boolean>}
  */
-export async function processAlertAction(alertId, action) {
-    await new Promise(r => setTimeout(r, 400));
-    console.log(`Alert ${alertId} processed with action: ${action}`);
-    return true;
+export async function processAlertAction(txId, action) {
+    const decision = action === 'Approve' ? 'approve' : 'block'
+    const response = await apiClient.post('/user_confirm_transaction', {
+        transaction_id: txId,
+        decision,
+    })
+    return !response.error
 }

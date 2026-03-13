@@ -29,12 +29,12 @@ export default function FraudAlerts() {
         }
     }
 
-    const handleAction = async (alertId, action) => {
+    const handleAction = async (alert, action) => {
         try {
-            const success = await processAlertAction(alertId, action)
+            const success = await processAlertAction(alert.txId, action)
             if (success) {
                 // Remove the alert from view after processing
-                setAlerts(prev => prev.filter(a => a.id !== alertId))
+                setAlerts(prev => prev.filter(a => a.id !== alert.id))
             }
         } catch (error) {
             console.error("Action failed:", error)
@@ -103,13 +103,13 @@ export default function FraudAlerts() {
 
                             <div className="flex gap-2 shrink-0">
                                 <button
-                                    onClick={() => handleAction(a.id, 'Approve')}
+                                    onClick={() => handleAction(a, 'Approve')}
                                     className="px-3 py-1.5 text-xs font-medium bg-success-500/10 text-success-400 border border-success-500/25 rounded-lg hover:bg-success-500/20 transition-colors"
                                 >
                                     Approve
                                 </button>
                                 <button
-                                    onClick={() => handleAction(a.id, 'Block')}
+                                    onClick={() => handleAction(a, 'Block')}
                                     className="px-3 py-1.5 text-xs font-medium bg-danger-500/10 text-danger-400 border border-danger-500/25 rounded-lg hover:bg-danger-500/20 transition-colors"
                                 >
                                     Block

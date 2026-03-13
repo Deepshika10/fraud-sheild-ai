@@ -1,20 +1,20 @@
-const transactions = [
-    { id: 'TXN-009841', amount: '$4,200.00', risk: 87, status: 'Fraudulent', merchant: 'Online Store XYZ', method: 'Card' },
-    { id: 'TXN-009840', amount: '$132.50', risk: 12, status: 'Approved', merchant: 'Starbucks Coffee', method: 'NFC' },
-    { id: 'TXN-009839', amount: '$8,950.00', risk: 72, status: 'Under Review', merchant: 'Travel Agency Pro', method: 'Wire' },
-    { id: 'TXN-009838', amount: '$29.99', risk: 4, status: 'Approved', merchant: 'Netflix Inc.', method: 'Card' },
-    { id: 'TXN-009837', amount: '$1,750.00', risk: 55, status: 'Under Review', merchant: 'Electronics Hub', method: 'Card' },
-    { id: 'TXN-009836', amount: '$340.00', risk: 23, status: 'Approved', merchant: 'Grocery Market', method: 'NFC' },
-    { id: 'TXN-009835', amount: '$12,400.00', risk: 94, status: 'Fraudulent', merchant: 'Unknown Merchant', method: 'Wire' },
-    { id: 'TXN-009834', amount: '$65.00', risk: 8, status: 'Approved', merchant: 'Uber Eats', method: 'Card' },
-    { id: 'TXN-009833', amount: '$3,200.00', risk: 61, status: 'Under Review', merchant: 'Luxury Goods Ltd.', method: 'Card' },
-    { id: 'TXN-009832', amount: '$19.99', risk: 3, status: 'Approved', merchant: 'Spotify AB', method: 'Card' },
-]
+import { useEffect, useState } from 'react'
+import { apiClient } from '../services/apiClient'
 
 const statusConfig = {
     'Approved': { cls: 'bg-success-500/15 text-success-400 border-success-500/25', dot: 'bg-success-400' },
     'Fraudulent': { cls: 'bg-danger-500/15 text-danger-400 border-danger-500/25', dot: 'bg-danger-400' },
     'Under Review': { cls: 'bg-warning-400/15 text-warning-400 border-warning-400/25', dot: 'bg-warning-400' },
+}
+
+function toUiStatus(status) {
+    if (status === 'APPROVED') {
+        return 'Approved'
+    }
+    if (status === 'BLOCKED') {
+        return 'Fraudulent'
+    }
+    return 'Under Review'
 }
 
 function RiskBar({ score }) {
@@ -31,6 +31,31 @@ function RiskBar({ score }) {
 }
 
 export default function RecentTransactions() {
+    const [transactions, setTransactions] = useState([])
+
+    useEffect(() => {
+        const load = async () => {
+            try {
+                const data = await apiClient.get('/transactions')
+                const mapped = Object.values(data)
+                    .map(tx => ({
+                        id: tx.transaction_id,
+                        amount: Number(tx.features?.amount || 0),
+                        risk: Math.round(Number(tx.risk_score || 0) * 100),
+                        status: toUiStatus(tx.status),
+                        merchant: tx.features?.merchant || 'Unknown Merchant',
+                        method: 'Card',
+                    }))
+                    .slice(-10)
+                    .reverse()
+                setTransactions(mapped)
+            } catch (error) {
+                console.error('Failed to load recent transactions:', error)
+            }
+        }
+        load()
+    }, [])
+
     return (
         <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -44,7 +69,7 @@ export default function RecentTransactions() {
                     </tr>
                 </thead>
                 <tbody>
-                    {transactions.map((tx, i) => {
+                    {transactions.map((tx) => {
                         const sc = statusConfig[tx.status]
                         return (
                             <tr key={tx.id} className="table-row-hover border-b border-white/5 last:border-0 cursor-pointer">
@@ -52,7 +77,7 @@ export default function RecentTransactions() {
                                     <span className="font-mono text-xs text-primary-300 font-semibold">{tx.id}</span>
                                 </td>
                                 <td className="py-3 px-3">
-                                    <span className="font-mono text-sm text-white font-semibold">{tx.amount}</span>
+                                    <span className="font-mono text-sm text-white font-semibold">${tx.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
                                 </td>
                                 <td className="py-3 px-3">
                                     <RiskBar score={tx.risk} />

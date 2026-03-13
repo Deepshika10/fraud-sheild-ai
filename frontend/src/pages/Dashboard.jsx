@@ -1,6 +1,8 @@
+import { useEffect, useState } from 'react'
 import MetricCard from '../components/MetricCard'
 import RecentTransactions from '../components/RecentTransactions'
 import RiskChart from '../components/RiskChart'
+import { apiClient } from '../services/apiClient'
 import {
     ArrowUpRight,
     Shield,
@@ -9,50 +11,74 @@ import {
     TrendingUp,
 } from 'lucide-react'
 
-const metrics = [
-    {
-        id: 'total',
-        label: 'Total Transactions',
-        value: '1,284,932',
-        change: '+12.4%',
-        changeDir: 'up',
-        icon: Activity,
-        color: 'blue',
-        sub: 'Last 30 days',
-    },
-    {
-        id: 'fraud',
-        label: 'Fraud Detected',
-        value: '3,847',
-        change: '+2.1%',
-        changeDir: 'up',
-        icon: Shield,
-        color: 'red',
-        sub: '0.30% of total',
-    },
-    {
-        id: 'risk',
-        label: 'Avg Risk Score',
-        value: '23.6',
-        change: '-4.8%',
-        changeDir: 'down',
-        icon: TrendingUp,
-        color: 'purple',
-        sub: 'Out of 100',
-    },
-    {
-        id: 'blockchain',
-        label: 'Blockchain Records',
-        value: '284,019',
-        change: '+8.7%',
-        changeDir: 'up',
-        icon: Database,
-        color: 'green',
-        sub: 'Verified on-chain',
-    },
-]
-
 export default function Dashboard() {
+    const [analytics, setAnalytics] = useState({
+        total_transactions: 0,
+        high_risk_transactions: 0,
+        approved_transactions: 0,
+        blocked_transactions: 0,
+        blockchain_logged_transactions: 0,
+    })
+
+    useEffect(() => {
+        const load = async () => {
+            try {
+                const data = await apiClient.get('/fraud_analytics')
+                setAnalytics(data)
+            } catch (error) {
+                console.error('Failed to load analytics:', error)
+            }
+        }
+        load()
+    }, [])
+
+    const avgRisk = analytics.total_transactions > 0
+        ? Math.round((analytics.high_risk_transactions / analytics.total_transactions) * 100)
+        : 0
+
+    const metrics = [
+        {
+            id: 'total',
+            label: 'Total Transactions',
+            value: analytics.total_transactions.toLocaleString(),
+            change: '+0.0%',
+            changeDir: 'up',
+            icon: Activity,
+            color: 'blue',
+            sub: 'Live backend data',
+        },
+        {
+            id: 'fraud',
+            label: 'Fraud Detected',
+            value: analytics.high_risk_transactions.toLocaleString(),
+            change: '+0.0%',
+            changeDir: 'up',
+            icon: Shield,
+            color: 'red',
+            sub: 'High-risk transactions',
+        },
+        {
+            id: 'risk',
+            label: 'Avg Risk Score',
+            value: String(avgRisk),
+            change: '+0.0%',
+            changeDir: 'up',
+            icon: TrendingUp,
+            color: 'purple',
+            sub: 'Estimated from high-risk ratio',
+        },
+        {
+            id: 'blockchain',
+            label: 'Blockchain Records',
+            value: analytics.blockchain_logged_transactions.toLocaleString(),
+            change: '+0.0%',
+            changeDir: 'up',
+            icon: Database,
+            color: 'green',
+            sub: 'Verified on-chain',
+        },
+    ]
+
     return (
         <div className="space-y-6 animate-fade-in">
             {/* Page header */}

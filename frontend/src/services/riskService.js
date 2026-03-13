@@ -3,6 +3,8 @@
  * Contains logic for evaluating transaction fraud risk.
  */
 
+import { apiClient } from './apiClient'
+
 const HIGH_RISK_LOCATIONS = [
     'nigeria', 'lagos', 'russia', 'moscow', 'ukraine', 'kyiv', 'belarus', 'unknown', 'anonymous'
 ];
@@ -103,15 +105,45 @@ export function analyzeTransaction(transaction) {
  * @returns {Promise<Object>}
  */
 export async function simulateAnalysisApi(transaction) {
-    // Simulate network latency
-    await new Promise(r => setTimeout(r, 1400));
+    const localAnalysis = analyzeTransaction(transaction)
+    const highRiskLocation = HIGH_RISK_LOCATIONS.some(l =>
+        (transaction.location || '').toLowerCase().includes(l)
+    )
+    const suspiciousDevice = !transaction.deviceId || ['unknown', 'anon', 'vpn'].some(k =>
+        (transaction.deviceId || '').toLowerCase().includes(k)
+    )
+    const suspiciousMerchant = !transaction.merchant || SUSPECT_MERCHANTS.some(m =>
+        (transaction.merchant || '').toLowerCase().includes(m)
+    )
+    const amount = parseFloat(transaction.amount) || 0
 
-    const analysis = analyzeTransaction(transaction);
-    const txId = 'TXN-' + Math.floor(100000 + Math.random() * 900000);
+    let hour = 12
+    if (transaction.txTime) {
+        const parsed = new Date(transaction.txTime)
+        if (!Number.isNaN(parsed.getTime())) {
+            hour = parsed.getHours()
+        }
+    }
+
+    const payload = {
+        amount,
+        location_distance: highRiskLocation ? 1800 : 120,
+        device_mismatch: suspiciousDevice ? 1 : 0,
+        velocity: amount >= 5000 ? 4 : 2,
+        unusual_time: hour >= 1 && hour <= 5 ? 1 : 0,
+        new_merchant: suspiciousMerchant ? 1 : 0,
+        failed_logins: suspiciousDevice ? 3 : 0,
+        ip_risk: highRiskLocation ? 1 : 0,
+        fraud_probability: Math.max(1, Math.min(99, Math.round(localAnalysis.riskScore))),
+    }
+
+    const response = await apiClient.post('/create_transaction', payload)
 
     return {
-        ...analysis,
-        txId,
-        timestamp: new Date().toLocaleString()
-    };
+        riskScore: Math.round((response.risk_score || 0) * 100),
+        riskLevel: response.risk_level === 'HIGH' ? 'High' : response.risk_level === 'MEDIUM' ? 'Medium' : 'Low',
+        reasons: response.reasons || [],
+        txId: response.transaction_id,
+        timestamp: new Date().toLocaleString(),
+    }
 }
