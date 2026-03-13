@@ -2,7 +2,7 @@ from fastapi import FastAPI
 import uuid
 
 from fastapi.middleware.cors import CORSMiddleware
-from app.decision_engine import evaluate_transaction
+from app.decision_engine import analyze_transaction, evaluate_transaction
 from app.transaction_store import (
     save_transaction,
     get_transaction,
@@ -25,6 +25,16 @@ app.add_middleware(
 @app.get("/")
 def home():
     return {"message": "AI Fraud Detection System Running"}
+
+
+@app.post("/analyze-transaction")
+def analyze_transaction_endpoint(transaction: dict):
+    required_fields = ["amount", "location", "device", "merchant"]
+    for field in required_fields:
+        if field not in transaction:
+            return {"error": f"{field} is required"}
+
+    return analyze_transaction(transaction)
 
 
 # ---------------------------------------

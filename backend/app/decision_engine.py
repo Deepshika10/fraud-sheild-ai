@@ -1,3 +1,124 @@
+from pathlib import Path
+
+import joblib
+import pandas as pd
+
+
+FEATURE_COLUMNS = [
+    "amount",
+    "location_distance",
+    "device_mismatch",
+    "velocity",
+    "unusual_time",
+    "new_merchant",
+    "failed_logins",
+    "ip_risk",
+]
+
+HIGH_RISK_LOCATIONS = {
+    "nigeria",
+    "lagos",
+    "russia",
+    "moscow",
+    "ukraine",
+    "kyiv",
+    "belarus",
+    "unknown",
+}
+
+HIGH_RISK_MERCHANTS = {
+    "crypto",
+    "casino",
+    "wire",
+    "gift",
+    "unknown",
+}
+
+
+def _load_model():
+    model_path = Path(__file__).resolve().parents[2] / "model" / "fraud_model.pkl"
+    if not model_path.exists():
+        return None
+    return joblib.load(model_path)
+
+
+MODEL = _load_model()
+
+
+def _predict_model_probability(features):
+    if MODEL is None:
+        return None
+
+    x_df = pd.DataFrame(
+        [[features[col] for col in FEATURE_COLUMNS]],
+        columns=FEATURE_COLUMNS,
+    )
+
+    anomaly_score = MODEL.decision_function(x_df)[0]
+    ml_risk = round((0.5 - anomaly_score) * 2, 2)
+    return max(0, min(ml_risk, 1))
+
+
+def _model_prediction(features):
+    if MODEL is None:
+        return None
+
+    x_df = pd.DataFrame(
+        [[features[col] for col in FEATURE_COLUMNS]],
+        columns=FEATURE_COLUMNS,
+    )
+    prediction = MODEL.predict(x_df)[0]
+    return 1 if prediction == -1 else 0
+
+
+def extract_features_for_model(transaction_data):
+    location = str(transaction_data.get("location", "")).lower()
+    device = str(transaction_data.get("device", "")).lower()
+    merchant = str(transaction_data.get("merchant", "")).lower()
+    amount = float(transaction_data.get("amount", 0))
+
+    high_risk_location = any(risk_loc in location for risk_loc in HIGH_RISK_LOCATIONS)
+    suspicious_merchant = any(risk_m in merchant for risk_m in HIGH_RISK_MERCHANTS)
+    suspicious_device = device in {"unknown", "new", "vpn", "proxy"}
+
+    return {
+        "amount": amount,
+        "location_distance": 1800 if high_risk_location else 120,
+        "device_mismatch": 1 if suspicious_device else 0,
+        "velocity": 5 if amount >= 5000 else 2,
+        "unusual_time": 0,
+        "new_merchant": 1 if suspicious_merchant else 0,
+        "failed_logins": 3 if suspicious_device else 0,
+        "ip_risk": 1 if high_risk_location else 0,
+    }
+
+
+def analyze_transaction(transaction_data):
+    features = extract_features_for_model(transaction_data)
+    model_probability = _predict_model_probability(features)
+
+    if model_probability is None:
+        # Fallback if model is unavailable.
+        model_probability = 0.5
+
+    risk_score = float(round(float(model_probability), 2))
+    if risk_score >= 0.7:
+        risk_level = "HIGH"
+    elif risk_score >= 0.4:
+        risk_level = "MEDIUM"
+    else:
+        risk_level = "LOW"
+
+    # Keep output consistent: prediction follows the same thresholding as risk level.
+    prediction = 1 if risk_level == "HIGH" else 0
+
+    return {
+        "risk_score": risk_score,
+        "risk_level": risk_level,
+        "prediction": int(prediction),
+    }
+
+
 def evaluate_transaction(features):
 
     amount = features["amount"]
@@ -8,7 +129,12 @@ def evaluate_transaction(features):
     new_merchant = features["new_merchant"]
     failed_logins = features["failed_logins"]
     ip_risk = features["ip_risk"]
-    fraud_probability = features["fraud_probability"] / 100  # convert % to 0-1
+    # Use trained model score when available; otherwise fallback to caller-provided value.
+    model_probability = _predict_model_probability(features)
+    if model_probability is None:
+        fraud_probability = features["fraud_probability"] / 100
+    else:
+        fraud_probability = model_probability
 
     risk_score = 0
     reasons = []
@@ -73,6 +199,6 @@ def evaluate_transaction(features):
     return {
         "risk_score": round(risk_score, 2),
         "risk_level": risk_level,
-        "fraud_probability": features["fraud_probability"],
+        "fraud_probability": round(fraud_probability * 100, 2),
         "reasons": reasons,
     }
