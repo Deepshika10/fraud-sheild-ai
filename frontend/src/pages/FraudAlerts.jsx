@@ -2,11 +2,13 @@ import { useState, useEffect } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { ShieldAlert, Filter, Clock, DollarSign, RefreshCw } from 'lucide-react'
 
-// Components
-import SeverityBadge from '../components/SeverityBadge'
-
 // Services
 import { getActiveAlerts, processAlertAction } from '../services/alertService'
+import { setupAuthenticator, verifyAuthenticator } from '../services/otpService'
+
+// Components
+import SeverityBadge from '../components/SeverityBadge'
+import GoogleAuthenticatorModal from '../components/GoogleAuthenticatorModal'
 
 export default function FraudAlerts() {
     const { searchQuery = '' } = useOutletContext()
@@ -14,6 +16,10 @@ export default function FraudAlerts() {
     const [loading, setLoading] = useState(true)
     const [filter, setFilter] = useState('All')
     const filters = ['All', 'Critical', 'High', 'Medium', 'Low']
+
+    // 2FA Modal state
+    const [otpOpen, setOtpOpen] = useState(false)
+    const [selectedAlert, setSelectedAlert] = useState(null)
 
     useEffect(() => {
         loadAlerts()
@@ -32,14 +38,42 @@ export default function FraudAlerts() {
     }
 
     const handleAction = async (alert, action) => {
+        if (action === 'Approve') {
+            setSelectedAlert(alert)
+            setOtpOpen(true)
+            return
+        }
+
+        // For Rejects/Blocks, process immediately
+        await finalizeAction(alert, action)
+    }
+
+    const finalizeAction = async (alert, action) => {
         try {
             const success = await processAlertAction(alert.txId, action)
             if (success) {
-                // Remove the alert from view after processing
                 setAlerts(prev => prev.filter(a => a.id !== alert.id))
             }
         } catch (error) {
             console.error("Action failed:", error)
+        }
+    }
+
+    const handleSetupAuthenticator = async () => {
+        const res = await setupAuthenticator(selectedAlert?.txId)
+        if (res.error) throw new Error(res.error)
+        return res
+    }
+
+    const handleVerifyAuthenticator = async (code) => {
+        return verifyAuthenticator(selectedAlert?.txId, code)
+    }
+
+    const handleOtpSuccess = () => {
+        setOtpOpen(false)
+        if (selectedAlert) {
+            finalizeAction(selectedAlert, 'Approve')
+            setSelectedAlert(null)
         }
     }
 
@@ -133,6 +167,18 @@ export default function FraudAlerts() {
                     ))
                 )}
             </div>
+
+            {/* Google Authenticator Modal */}
+            <GoogleAuthenticatorModal
+                open={otpOpen}
+                txId={selectedAlert?.txId}
+                action="APPROVE_ALERT"
+                onSuccess={handleOtpSuccess}
+                onFail={() => setOtpOpen(false)}
+                onClose={() => setOtpOpen(false)}
+                onSetup={handleSetupAuthenticator}
+                onVerify={handleVerifyAuthenticator}
+            />
         </div>
     )
 }

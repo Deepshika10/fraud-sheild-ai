@@ -12,10 +12,10 @@ import {
 } from 'lucide-react'
 import RiskResultCard from '../components/RiskResultCard'
 import FraudAlertPanel from '../components/FraudAlertPanel'
-import OtpModal from '../components/OtpModal'
+import GoogleAuthenticatorModal from '../components/GoogleAuthenticatorModal'
 import { simulateAnalysisApi } from '../services/riskService'
 import { confirmUserTransaction } from '../services/transactionService'
-import { generateOtp, verifyOtp } from '../services/otpService'
+import { setupAuthenticator, verifyAuthenticator } from '../services/otpService'
 
 // ─── Field component ──────────────────────────────────────────────────────────
 function FormField({ label, name, icon: Icon, type = 'text', placeholder, value, onChange }) {
@@ -103,16 +103,16 @@ export default function SimulateTransaction() {
         setTimeout(() => setAlertOpen(false), 1200)
     }
 
-    // OTP modal: generate OTP via backend
-    const handleOtpGenerate = async () => {
-        const res = await generateOtp(result.txId)
+    // Google Authenticator modal: set up authenticator via backend
+    const handleSetupAuthenticator = async () => {
+        const res = await setupAuthenticator(result.txId)
         if (res.error) throw new Error(res.error)
-        return res.otp
+        return res
     }
 
-    // OTP modal: verify OTP via backend
-    const handleOtpVerify = async (otp) => {
-        return verifyOtp(result.txId, otp)
+    // Google Authenticator modal: verify code via backend
+    const handleVerifyAuthenticator = async (code) => {
+        return verifyAuthenticator(result.txId, code)
     }
 
     // OTP modal success
@@ -199,21 +199,21 @@ export default function SimulateTransaction() {
                     className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-violet-500/30 bg-violet-500/8 text-violet-400 text-sm font-semibold hover:bg-violet-500/15 transition-all"
                 >
                     <KeyRound size={15} />
-                    Complete OTP Verification
+                    Complete 2FA Verification
                 </button>
             )}
 
-            {/* OTP completion status */}
+            {/* 2FA completion status */}
             {otpCompleted === 'APPROVED' && (
                 <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-green-500/30 bg-green-500/8">
                     <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                    <p className="text-sm font-semibold text-green-400">Transaction Approved — OTP verified successfully.</p>
+                    <p className="text-sm font-semibold text-green-400">Transaction Approved — 2FA verified successfully.</p>
                 </div>
             )}
             {otpCompleted === 'BANK_APPROVAL' && (
                 <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-violet-500/30 bg-violet-500/8">
                     <div className="w-2 h-2 rounded-full bg-violet-400 animate-pulse" />
-                    <p className="text-sm font-semibold text-violet-300">OTP Verified — Transaction forwarded to Bank Approval dashboard.</p>
+                    <p className="text-sm font-semibold text-violet-300">2FA Verified — Transaction forwarded to Bank Approval dashboard.</p>
                 </div>
             )}
 
@@ -240,16 +240,16 @@ export default function SimulateTransaction() {
                 onClose={() => setAlertOpen(false)}
             />
 
-            {/* OTP Modal — for both HIGH RISK and CRITICAL FRAUD */}
-            <OtpModal
+            {/* Google Authenticator Modal — for both HIGH RISK and CRITICAL FRAUD */}
+            <GoogleAuthenticatorModal
                 open={otpOpen}
                 txId={result?.txId}
                 action={result?.action}
                 onSuccess={handleOtpSuccess}
                 onFail={() => setOtpOpen(false)}
                 onClose={() => setOtpOpen(false)}
-                onGenerate={handleOtpGenerate}
-                onVerify={handleOtpVerify}
+                onSetup={handleSetupAuthenticator}
+                onVerify={handleVerifyAuthenticator}
             />
         </div>
     )

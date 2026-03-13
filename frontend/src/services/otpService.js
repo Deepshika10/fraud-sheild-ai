@@ -1,26 +1,31 @@
 /**
- * OTP Verification Service
- * Handles generating and verifying OTPs for flagged transactions.
+ * Google Authenticator (TOTP) Service
+ * Handles setting up and verifying Google Authenticator for flagged transactions.
  */
 
 import { apiClient } from './apiClient'
 
 /**
- * Requests a new 6-digit OTP for the given transaction.
- * The backend returns the OTP in plain text (simulated SMS/email delivery).
+ * Sets up Google Authenticator for the given transaction.
+ * Returns a QR code and secret key for the user to scan.
  * @param {string} txId
- * @returns {Promise<{otp: string, transaction_id: string, message: string}>}
+ * @returns {Promise<{secret: string, qr_code: string, transaction_id: string, message: string}>}
  */
-export async function generateOtp(txId) {
-    return apiClient.post('/generate-otp', { transaction_id: txId })
+export async function setupAuthenticator(txId) {
+    return apiClient.post('/setup-authenticator', { transaction_id: txId })
 }
 
 /**
- * Submits the OTP entered by the user for verification.
+ * Submits the 6-digit code from Google Authenticator for verification.
  * @param {string} txId
- * @param {string} otp  - 6-digit code as a string
+ * @param {string} code  - 6-digit TOTP code as a string
  * @returns {Promise<{next_step?: string, error?: string, attempts_remaining?: number}>}
  */
-export async function verifyOtp(txId, otp) {
-    return apiClient.post('/verify-otp', { transaction_id: txId, otp })
+export async function verifyAuthenticator(txId, code) {
+    return apiClient.post('/verify-authenticator', { transaction_id: txId, code })
 }
+
+// Backwards compatibility aliases for migration
+export const generateOtp = setupAuthenticator
+export const verifyOtp = verifyAuthenticator
+
