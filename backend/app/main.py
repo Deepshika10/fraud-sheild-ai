@@ -84,7 +84,6 @@ def create_transaction(features: dict):
         "new_merchant",
         "failed_logins",
         "ip_risk",
-        "fraud_probability",
     ]
 
     # Validate input
@@ -92,8 +91,17 @@ def create_transaction(features: dict):
         if field not in features:
             return {"error": f"{field} is required"}
 
-    # Run fraud detection
-    result = evaluate_transaction(features)
+    normalized_features = dict(features)
+    if "behavior_score" not in normalized_features:
+        normalized_features["behavior_score"] = (
+            int(normalized_features.get("device_mismatch", 0))
+            + int(normalized_features.get("unusual_time", 0))
+            + int(normalized_features.get("ip_risk", 0))
+            + int(normalized_features.get("failed_logins", 0))
+        )
+
+    # Run fraud detection (supports both old/new model schemas)
+    result = evaluate_transaction(normalized_features)
 
     risk_score = result["risk_score"]
     risk_level = result["risk_level"]
@@ -114,7 +122,7 @@ def create_transaction(features: dict):
 
     transaction_data = {
         "transaction_id": txn_id,
-        "features": features,
+        "features": normalized_features,
         "risk_score": risk_score,
         "risk_level": risk_level,
         "fraud_probability": fraud_probability,

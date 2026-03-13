@@ -4,7 +4,7 @@ import joblib
 import pandas as pd
 
 
-FEATURE_COLUMNS = [
+BASE_FEATURE_COLUMNS = [
     "amount",
     "location_distance",
     "device_mismatch",
@@ -14,6 +14,8 @@ FEATURE_COLUMNS = [
     "failed_logins",
     "ip_risk",
 ]
+
+FEATURE_COLUMNS = BASE_FEATURE_COLUMNS + ["behavior_score"]
 
 HIGH_RISK_LOCATIONS = {
     "nigeria",
@@ -45,14 +47,37 @@ def _load_model():
 MODEL = _load_model()
 
 
+def _ensure_behavior_score(features):
+    enriched = dict(features)
+    if "behavior_score" not in enriched:
+        enriched["behavior_score"] = (
+            int(enriched.get("device_mismatch", 0))
+            + int(enriched.get("unusual_time", 0))
+            + int(enriched.get("ip_risk", 0))
+            + int(enriched.get("failed_logins", 0))
+        )
+    return enriched
+
+
+def _model_feature_columns():
+    # Support both older (8 features) and newer (9 features) model artifacts.
+    if MODEL is not None and hasattr(MODEL, "feature_names_in_"):
+        return list(MODEL.feature_names_in_)
+    return FEATURE_COLUMNS
+
+
+def _build_model_frame(features):
+    enriched = _ensure_behavior_score(features)
+    expected_columns = _model_feature_columns()
+    row = {col: enriched.get(col, 0) for col in expected_columns}
+    return pd.DataFrame([row], columns=expected_columns)
+
+
 def _predict_model_probability(features):
     if MODEL is None:
         return None
 
-    x_df = pd.DataFrame(
-        [[features[col] for col in FEATURE_COLUMNS]],
-        columns=FEATURE_COLUMNS,
-    )
+    x_df = _build_model_frame(features)
 
     anomaly_score = MODEL.decision_function(x_df)[0]
     ml_risk = round((0.5 - anomaly_score) * 2, 2)
@@ -63,10 +88,7 @@ def _model_prediction(features):
     if MODEL is None:
         return None
 
-    x_df = pd.DataFrame(
-        [[features[col] for col in FEATURE_COLUMNS]],
-        columns=FEATURE_COLUMNS,
-    )
+    x_df = _build_model_frame(features)
     prediction = MODEL.predict(x_df)[0]
     return 1 if prediction == -1 else 0
 
@@ -112,7 +134,7 @@ def extract_features_for_model(transaction_data):
     suspicious_merchant = any(risk_m in merchant for risk_m in HIGH_RISK_MERCHANTS)
     suspicious_device = device in {"unknown", "new", "vpn", "proxy"}
 
-    return {
+    features = {
         "amount": amount,
         "location_distance": 1800 if high_risk_location else 120,
         "device_mismatch": 1 if suspicious_device else 0,
@@ -122,6 +144,15 @@ def extract_features_for_model(transaction_data):
         "failed_logins": 3 if suspicious_device else 0,
         "ip_risk": 1 if high_risk_location else 0,
     }
+
+    features["behavior_score"] = (
+        features["device_mismatch"]
+        + features["unusual_time"]
+        + features["ip_risk"]
+        + features["failed_logins"]
+    )
+
+    return features
 
 
 def analyze_transaction(transaction_data):
@@ -152,6 +183,8 @@ def analyze_transaction(transaction_data):
 
 def evaluate_transaction(features):
 
+    features = _ensure_behavior_score(features)
+
     amount = features["amount"]
     location_distance = features["location_distance"]
     device_mismatch = features["device_mismatch"]
@@ -160,10 +193,12 @@ def evaluate_transaction(features):
     new_merchant = features["new_merchant"]
     failed_logins = features["failed_logins"]
     ip_risk = features["ip_risk"]
+    behavior_score = features["behavior_score"]
     # Use trained model score when available; otherwise fallback to caller-provided value.
     model_probability = _predict_model_probability(features)
     if model_probability is None:
-        fraud_probability = features["fraud_probability"] / 100
+        fallback = float(features.get("fraud_probability", 50)) / 100
+        fraud_probability = max(0, min(fallback, 1))
     else:
         fraud_probability = model_probability
 
@@ -209,6 +244,10 @@ def evaluate_transaction(features):
     if ip_risk == 1:
         risk_score += 0.05
         reasons.append("Risky IP address")
+
+    if behavior_score >= 3:
+        risk_score += 0.10
+        reasons.append("Abnormal behavior score pattern")
 
     # ML Fraud Probability influence
     risk_score += fraud_probability * 0.30

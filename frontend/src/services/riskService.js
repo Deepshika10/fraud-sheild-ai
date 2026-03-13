@@ -125,15 +125,22 @@ export async function simulateAnalysisApi(transaction) {
         }
     }
 
+    const unusualTime = hour >= 1 && hour <= 5 ? 1 : 0
+    const failedLogins = suspiciousDevice ? 3 : 0
+    const ipRisk = highRiskLocation ? 1 : 0
+    const deviceMismatch = suspiciousDevice ? 1 : 0
+    const behaviorScore = deviceMismatch + unusualTime + ipRisk + failedLogins
+
     const payload = {
         amount,
         location_distance: highRiskLocation ? 1800 : 120,
-        device_mismatch: suspiciousDevice ? 1 : 0,
+        device_mismatch: deviceMismatch,
         velocity: amount >= 5000 ? 4 : 2,
-        unusual_time: hour >= 1 && hour <= 5 ? 1 : 0,
+        unusual_time: unusualTime,
         new_merchant: suspiciousMerchant ? 1 : 0,
-        failed_logins: suspiciousDevice ? 3 : 0,
-        ip_risk: highRiskLocation ? 1 : 0,
+        failed_logins: failedLogins,
+        ip_risk: ipRisk,
+        behavior_score: behaviorScore,
         fraud_probability: Math.max(1, Math.min(99, Math.round(localAnalysis.riskScore))),
     }
 
