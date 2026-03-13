@@ -17,10 +17,13 @@ function toUiStatus(status) {
 
 function toUserResponse(status) {
     if (status === 'WAITING_BANK_APPROVAL') {
-        return 'Confirmed Legitimate'
+        return 'OTP Verified'
     }
     if (status === 'WAITING_OTP_VERIFICATION') {
         return 'OTP Required'
+    }
+    if (status === 'HIGH_RISK_WAITING_USER') {
+        return 'OTP Pending'
     }
     if (status === 'BLOCKED') {
         return 'Disputed'

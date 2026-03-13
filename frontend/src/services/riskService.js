@@ -151,6 +151,7 @@ export async function simulateAnalysisApi(transaction) {
         riskLevel: response.risk_level === 'HIGH' ? 'High' : response.risk_level === 'MEDIUM' ? 'Medium' : 'Low',
         reasons: response.reasons || [],
         txId: response.transaction_id,
+        action: response.action || 'AUTO_APPROVED',
         timestamp: new Date().toLocaleString(),
     }
 }

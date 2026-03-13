@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from threading import Event, Thread
 import uuid
+import random
 
 from fastapi.middleware.cors import CORSMiddleware
 from app.decision_engine import analyze_transaction, evaluate_transaction
@@ -22,6 +23,9 @@ from app.blockchain_logger import (
 )
 
 app = FastAPI()
+
+# In-memory OTP store: {transaction_id: {"otp": str, "attempts": int}}
+otp_store: dict = {}
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # allow frontend access
@@ -144,7 +148,93 @@ def create_transaction(features: dict):
         # Store blockchain record separately for verification
         save_blockchain_record(txn_id, blockchain_record)
 
+    # Determine action field for frontend routing
+    action_map = {
+        "LOW": "AUTO_APPROVED",
+        "MEDIUM": "USER_VERIFICATION_ONLY",
+        "HIGH": "USER_VERIFY_THEN_BANK",
+    }
+    transaction_data["action"] = action_map.get(risk_level, "AUTO_APPROVED")
+
     return transaction_data
+
+
+# ---------------------------------------
+# USER CONFIRMATION
+# ---------------------------------------
+
+
+@app.post("/generate-otp")
+def generate_otp(data: dict):
+    """
+    Generates a 6-digit OTP for a transaction awaiting OTP verification.
+    Returns the OTP in plain text so the frontend can display it (simulated SMS/email).
+    """
+    txn_id = data.get("transaction_id")
+    if not txn_id:
+        return {"error": "transaction_id is required"}
+
+    transaction = get_transaction(txn_id)
+    if not transaction:
+        return {"error": "Transaction not found"}
+
+    otp = str(random.randint(100000, 999999))
+    otp_store[txn_id] = {"otp": otp, "attempts": 3}
+
+    return {"transaction_id": txn_id, "otp": otp, "message": "OTP generated successfully"}
+
+
+@app.post("/verify-otp")
+def verify_otp(data: dict):
+    """
+    Validates the OTP for a transaction and transitions its status:
+      - MEDIUM (WAITING_OTP_VERIFICATION) + correct OTP  → APPROVED
+      - HIGH   (HIGH_RISK_WAITING_USER)   + correct OTP  → WAITING_BANK_APPROVAL
+      - Wrong OTP → returns error with remaining attempts
+    """
+    txn_id = data.get("transaction_id")
+    submitted_otp = str(data.get("otp", "")).strip()
+
+    if not txn_id or not submitted_otp:
+        return {"error": "transaction_id and otp are required"}
+
+    transaction = get_transaction(txn_id)
+    if not transaction:
+        return {"error": "Transaction not found"}
+
+    if txn_id not in otp_store:
+        return {"error": "No OTP generated for this transaction. Call /generate-otp first."}
+
+    record = otp_store[txn_id]
+
+    if record["attempts"] <= 0:
+        return {"error": "Maximum OTP attempts exceeded. Transaction blocked.", "attempts_remaining": 0}
+
+    if submitted_otp != record["otp"]:
+        record["attempts"] -= 1
+        return {
+            "error": "Invalid OTP",
+            "attempts_remaining": record["attempts"],
+        }
+
+    # OTP correct — clean up store
+    del otp_store[txn_id]
+
+    risk_level = transaction.get("risk_level", "")
+    if risk_level == "HIGH":
+        update_transaction_status(txn_id, "WAITING_BANK_APPROVAL")
+        return {
+            "message": "OTP verified. Transaction forwarded to bank for final approval.",
+            "next_step": "BANK_APPROVAL",
+            "transaction": get_transaction(txn_id),
+        }
+    else:
+        update_transaction_status(txn_id, "APPROVED")
+        return {
+            "message": "OTP verified. Transaction approved.",
+            "next_step": "APPROVED",
+            "transaction": get_transaction(txn_id),
+        }
 
 
 # ---------------------------------------
