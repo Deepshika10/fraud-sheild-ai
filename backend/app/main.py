@@ -2,6 +2,10 @@ from fastapi import FastAPI
 from threading import Event, Thread
 import uuid
 import random
+import pyotp
+import qrcode
+import io
+import base64
 
 from fastapi.middleware.cors import CORSMiddleware
 from app.decision_engine import analyze_transaction, evaluate_transaction
@@ -24,8 +28,8 @@ from app.blockchain_logger import (
 
 app = FastAPI()
 
-# In-memory OTP store: {transaction_id: {"otp": str, "attempts": int}}
-otp_store: dict = {}
+# In-memory 2FA store: {transaction_id: {"secret": str, "attempts": int}}
+totp_store: dict = {}
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # allow frontend access
@@ -164,11 +168,11 @@ def create_transaction(features: dict):
 # ---------------------------------------
 
 
-@app.post("/generate-otp")
-def generate_otp(data: dict):
+@app.post("/setup-authenticator")
+def setup_authenticator(data: dict):
     """
-    Generates a 6-digit OTP for a transaction awaiting OTP verification.
-    Returns the OTP in plain text so the frontend can display it (simulated SMS/email).
+    Sets up Google Authenticator for a transaction.
+    Returns a QR code and secret key for the user to scan.
     """
     txn_id = data.get("transaction_id")
     if not txn_id:
@@ -178,60 +182,116 @@ def generate_otp(data: dict):
     if not transaction:
         return {"error": "Transaction not found"}
 
-    otp = str(random.randint(100000, 999999))
-    otp_store[txn_id] = {"otp": otp, "attempts": 3}
+    # Generate a new secret for TOTP
+    secret = pyotp.random_base32()
 
-    return {"transaction_id": txn_id, "otp": otp, "message": "OTP generated successfully"}
+    # Create a TOTP provisioning URI
+    totp = pyotp.TOTP(secret)
+    provisioning_uri = totp.provisioning_uri(
+        name=f"FraudShield-{txn_id[:8]}", issuer_name="FraudShield"
+    )
+
+    # Generate QR code
+    qr = qrcode.QRCode(version=1, box_size=10, border=5)
+    qr.add_data(provisioning_uri)
+    qr.make(fit=True)
+
+    # Convert QR code to image and then to base64
+    img = qr.make_image(fill_color="black", back_color="white")
+    buffer = io.BytesIO()
+    img.save(buffer, "PNG")
+    buffer.seek(0)
+    qr_code_base64 = base64.b64encode(buffer.getvalue()).decode()
+
+    # Store secret and attempts
+    totp_store[txn_id] = {"secret": secret, "attempts": 3}
+
+    print(
+        f"DEBUG: Setup authenticator - txn_id={txn_id}, secret={secret}, uri={provisioning_uri}"
+    )
+
+    return {
+        "transaction_id": txn_id,
+        "secret": secret,
+        "qr_code": f"data:image/png;base64,{qr_code_base64}",
+        "message": "Scan the QR code with Google Authenticator",
+    }
 
 
-@app.post("/verify-otp")
-def verify_otp(data: dict):
+@app.post("/verify-authenticator")
+def verify_authenticator(data: dict):
     """
-    Validates the OTP for a transaction and transitions its status:
-      - MEDIUM (WAITING_OTP_VERIFICATION) + correct OTP  → APPROVED
-      - HIGH   (HIGH_RISK_WAITING_USER)   + correct OTP  → WAITING_BANK_APPROVAL
-      - Wrong OTP → returns error with remaining attempts
+    Validates the TOTP code for a transaction and transitions its status:
+      - MEDIUM (WAITING_OTP_VERIFICATION) + correct code  → APPROVED
+      - HIGH   (HIGH_RISK_WAITING_USER)   + correct code  → WAITING_BANK_APPROVAL
+      - Wrong code → returns error with remaining attempts
     """
     txn_id = data.get("transaction_id")
-    submitted_otp = str(data.get("otp", "")).strip()
+    submitted_code = str(data.get("code", "")).strip()
 
-    if not txn_id or not submitted_otp:
-        return {"error": "transaction_id and otp are required"}
+    if not txn_id or not submitted_code:
+        return {"error": "transaction_id and code are required"}
 
     transaction = get_transaction(txn_id)
     if not transaction:
         return {"error": "Transaction not found"}
 
-    if txn_id not in otp_store:
-        return {"error": "No OTP generated for this transaction. Call /generate-otp first."}
+    if txn_id not in totp_store:
+        return {
+            "error": "No authenticator set up for this transaction. Call /setup-authenticator first."
+        }
 
-    record = otp_store[txn_id]
+    record = totp_store[txn_id]
 
     if record["attempts"] <= 0:
-        return {"error": "Maximum OTP attempts exceeded. Transaction blocked.", "attempts_remaining": 0}
+        return {
+            "error": "Maximum verification attempts exceeded. Transaction blocked.",
+            "attempts_remaining": 0,
+        }
 
-    if submitted_otp != record["otp"]:
+    # Ensure code is only digits and exactly 6 characters
+    if not submitted_code.isdigit() or len(submitted_code) != 6:
         record["attempts"] -= 1
         return {
-            "error": "Invalid OTP",
+            "error": "Invalid code format. Must be 6 digits.",
             "attempts_remaining": record["attempts"],
         }
 
-    # OTP correct — clean up store
-    del otp_store[txn_id]
+    # Verify the TOTP code with extended time window for clock skew tolerance
+    # valid_window=2 allows ±2 time windows (±60 seconds) to account for clock differences
+    secret = record["secret"].strip()
+    totp = pyotp.TOTP(secret)
+
+    # Try to verify the code
+    is_valid = totp.verify(submitted_code, valid_window=2)
+
+    if not is_valid:
+        record["attempts"] -= 1
+        # For debugging: also check current time code
+        current_code = totp.now()
+        print(
+            f"DEBUG: txn_id={txn_id}, submitted={submitted_code}, current={current_code}, secret={secret}"
+        )
+        return {
+            "error": "Invalid authenticator code",
+            "attempts_remaining": record["attempts"],
+        }
+
+    # Code correct — clean up store
+    del totp_store[txn_id]
 
     risk_level = transaction.get("risk_level", "")
     if risk_level == "HIGH":
         update_transaction_status(txn_id, "WAITING_BANK_APPROVAL")
         return {
-            "message": "OTP verified. Transaction forwarded to bank for final approval.",
+            "message": "Authentication verified. Transaction forwarded to bank for final approval.",
             "next_step": "BANK_APPROVAL",
             "transaction": get_transaction(txn_id),
         }
     else:
         update_transaction_status(txn_id, "APPROVED")
         return {
-            "message": "OTP verified. Transaction approved.",
+            "message": "Authentication verified. Transaction approved.",
             "next_step": "APPROVED",
             "transaction": get_transaction(txn_id),
         }
