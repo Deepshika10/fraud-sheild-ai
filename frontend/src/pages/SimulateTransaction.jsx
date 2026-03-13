@@ -8,11 +8,14 @@ import {
     Store,
     Clock,
     Siren,
+    KeyRound,
 } from 'lucide-react'
 import RiskResultCard from '../components/RiskResultCard'
 import FraudAlertPanel from '../components/FraudAlertPanel'
+import OtpModal from '../components/OtpModal'
 import { simulateAnalysisApi } from '../services/riskService'
 import { confirmUserTransaction } from '../services/transactionService'
+import { generateOtp, verifyOtp } from '../services/otpService'
 
 // ─── Field component ──────────────────────────────────────────────────────────
 function FormField({ label, name, icon: Icon, type = 'text', placeholder, value, onChange }) {
@@ -44,6 +47,8 @@ export default function SimulateTransaction() {
     const [result, setResult] = useState(null)
     const [loading, setLoading] = useState(false)
     const [alertOpen, setAlertOpen] = useState(false)
+    const [otpOpen, setOtpOpen] = useState(false)
+    const [otpCompleted, setOtpCompleted] = useState(null) // 'APPROVED' | 'BANK_APPROVAL' | null
 
     const handleChange = e => setForm(f => ({ ...f, [e.target.name]: e.target.value }))
 
@@ -51,23 +56,30 @@ export default function SimulateTransaction() {
         setLoading(true)
         setResult(null)
         setAlertOpen(false)
+        setOtpOpen(false)
+        setOtpCompleted(null)
 
         try {
-            const next = await simulateAnalysisApi(form);
+            const next = await simulateAnalysisApi(form)
             setResult(next)
 
-            // Auto-open alert panel for high-risk transactions
-            if (next.riskLevel === 'High') {
+            // CRITICAL FRAUD (HIGH): show FraudAlertPanel first
+            if (next.action === 'USER_VERIFY_THEN_BANK') {
                 setTimeout(() => setAlertOpen(true), 400)
             }
+            // HIGH RISK (MEDIUM): go straight to OTP modal
+            else if (next.action === 'USER_VERIFICATION_ONLY') {
+                setTimeout(() => setOtpOpen(true), 400)
+            }
         } catch (error) {
-            console.error("Analysis failed:", error);
+            console.error('Analysis failed:', error)
         } finally {
             setLoading(false)
         }
     }
 
-    const handleConfirm = async () => {
+    // FraudAlertPanel: user confirms legit → call backend to mark, then open OTP
+    const handleFraudConfirm = async () => {
         setAlertOpen(false)
         if (result?.txId) {
             try {
@@ -76,8 +88,10 @@ export default function SimulateTransaction() {
                 console.error('Failed to confirm transaction:', err)
             }
         }
+        setTimeout(() => setOtpOpen(true), 300)
     }
 
+    // FraudAlertPanel: user reports fraud → block & close
     const handleReportFraud = async () => {
         if (result?.txId) {
             try {
@@ -88,6 +102,26 @@ export default function SimulateTransaction() {
         }
         setTimeout(() => setAlertOpen(false), 1200)
     }
+
+    // OTP modal: generate OTP via backend
+    const handleOtpGenerate = async () => {
+        const res = await generateOtp(result.txId)
+        if (res.error) throw new Error(res.error)
+        return res.otp
+    }
+
+    // OTP modal: verify OTP via backend
+    const handleOtpVerify = async (otp) => {
+        return verifyOtp(result.txId, otp)
+    }
+
+    // OTP modal success
+    const handleOtpSuccess = (nextStep) => {
+        setOtpOpen(false)
+        setOtpCompleted(nextStep === 'BANK_APPROVAL' ? 'BANK_APPROVAL' : 'APPROVED')
+    }
+
+    const isCritical = result?.action === 'USER_VERIFY_THEN_BANK'
 
     return (
         <div className="space-y-6 animate-fade-in max-w-2xl mx-auto">
@@ -149,8 +183,8 @@ export default function SimulateTransaction() {
                 </button>
             </div>
 
-            {/* High-risk re-open banner */}
-            {result?.riskLevel === 'High' && (
+            {/* Re-open banners */}
+            {result?.action === 'USER_VERIFY_THEN_BANK' && !otpCompleted && (
                 <button
                     onClick={() => setAlertOpen(true)}
                     className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-red-500/30 bg-red-500/8 text-red-400 text-sm font-semibold hover:bg-red-500/15 transition-all"
@@ -159,8 +193,31 @@ export default function SimulateTransaction() {
                     Review Security Alert
                 </button>
             )}
+            {result?.action === 'USER_VERIFICATION_ONLY' && !otpCompleted && (
+                <button
+                    onClick={() => setOtpOpen(true)}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-violet-500/30 bg-violet-500/8 text-violet-400 text-sm font-semibold hover:bg-violet-500/15 transition-all"
+                >
+                    <KeyRound size={15} />
+                    Complete OTP Verification
+                </button>
+            )}
 
-            {/* Result */}
+            {/* OTP completion status */}
+            {otpCompleted === 'APPROVED' && (
+                <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-green-500/30 bg-green-500/8">
+                    <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                    <p className="text-sm font-semibold text-green-400">Transaction Approved — OTP verified successfully.</p>
+                </div>
+            )}
+            {otpCompleted === 'BANK_APPROVAL' && (
+                <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-violet-500/30 bg-violet-500/8">
+                    <div className="w-2 h-2 rounded-full bg-violet-400 animate-pulse" />
+                    <p className="text-sm font-semibold text-violet-300">OTP Verified — Transaction forwarded to Bank Approval dashboard.</p>
+                </div>
+            )}
+
+            {/* Result card */}
             {result && (
                 <RiskResultCard
                     riskScore={result.riskScore}
@@ -171,16 +228,28 @@ export default function SimulateTransaction() {
                 />
             )}
 
-            {/* Fraud Alert Panel — shown automatically for High risk */}
+            {/* CRITICAL FRAUD: Fraud Alert Panel */}
             <FraudAlertPanel
                 open={alertOpen}
                 amount={form.amount}
                 riskScore={result?.riskScore}
                 reasons={result?.reasons ?? []}
                 txId={result?.txId}
-                onConfirm={handleConfirm}
+                onConfirm={handleFraudConfirm}
                 onReportFraud={handleReportFraud}
                 onClose={() => setAlertOpen(false)}
+            />
+
+            {/* OTP Modal — for both HIGH RISK and CRITICAL FRAUD */}
+            <OtpModal
+                open={otpOpen}
+                txId={result?.txId}
+                action={result?.action}
+                onSuccess={handleOtpSuccess}
+                onFail={() => setOtpOpen(false)}
+                onClose={() => setOtpOpen(false)}
+                onGenerate={handleOtpGenerate}
+                onVerify={handleOtpVerify}
             />
         </div>
     )
